@@ -96,5 +96,75 @@
     <Compile Include="KASALogisticsUI.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
+  <ItemGroup>
+    <None Include="Agencies\Agents.cfg" />
+    <None Include="COMPILING.md" />
+    <None Include="Contracts\01_TheFirstFlights.cfg" />
+    <None Include="Contracts\02_TheDiscoveryProgram.cfg" />
+    <None Include="Contracts\03_TheKerbinScanProgram.cfg" />
+    <None Include="Contracts\04_TheKerbinSystemProgram.cfg" />
+    <None Include="Contracts\05_TheInnerPlanetsProgram.cfg" />
+    <None Include="Contracts\06_TheOuterPlanetsProgram.cfg" />
+    <None Include="Contracts\07_TheStationsProgram.cfg" />
+    <None Include="Contracts\08_TheBasesProgram.cfg" />
+    <None Include="Contracts\10a_TheKerbinAnomalies.cfg" />
+    <None Include="Contracts\10b_TheMunMinmusAnomalies.cfg" />
+    <None Include="Contracts\10c_TheConvergence.cfg" />
+    <None Include="Contracts\90_TheTourismProgram.cfg" />
+    <None Include="KASA.cfg" />
+    <None Include="KASA_AetheriumEngines.cfg" />
+    <None Include="KASA_Discovery.cfg" />
+    <None Include="KASA_ELOverride.cfg" />
+    <None Include="KASA_FuelTanks.cfg" />
+    <None Include="KASA_LaunchSites.cfg" />
+    <None Include="KASA_Logistics.cfg" />
+    <None Include="KASA_Parts.cfg" />
+    <None Include="KASA_PrismaticGelEngines.cfg" />
+    <None Include="KASA_Resources.cfg" />
+    <None Include="KASA_ScienceDefs.cfg" />
+    <None Include="KASA_TechTree.cfg" />
+    <None Include="KNOWN_BUGS.md" />
+    <None Include="LOGISTICS_UI_DESIGN.md" />
+    <None Include="Parts\kdt75_farreach\kdt75_farreach.cfg" />
+    <None Include="Parts\kdt75_farreach\TB-75M.mu" />
+    <None Include="Parts\kmb1_harbinger\kmb1_harbinger.cfg" />
+    <None Include="Parts\kmb1_harbinger\modelMagBoom.mu" />
+    <None Include="Parts\kop1_seeker\kop1_seeker.cfg" />
+    <None Include="Parts\kop1_seeker\modelScope.mu" />
+    <None Include="Parts\kvs1_watcher\kvs1_watcher.cfg" />
+    <None Include="Parts\kvs1_watcher\model.mu" />
+    <None Include="Parts\kvs3_gazer\kvs3_gazer.cfg" />
+    <None Include="Parts\kvs3_gazer\model.mu" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="Agencies\KASA_logo.png" />
+    <Content Include="Agencies\KASA_logo_scaled.png" />
+    <Content Include="Icons\arch.png" />
+    <Content Include="Icons\logistics_icon.png" />
+    <Content Include="Icons\monolith.png" />
+    <Content Include="Icons\pyramids.png" />
+    <Content Include="Icons\unknown.png" />
+    <Content Include="Parts\%40thumbs\kdt75.farreach_icon.png" />
+    <Content Include="Parts\%40thumbs\kmb1.harbinger_icon.png" />
+    <Content Include="Parts\%40thumbs\kvs3.gazer_icon.png" />
+    <Content Include="Parts\kdt75_farreach\TB-75M.png" />
+    <Content Include="Parts\kmb1_harbinger\Boom_DIFF.dds" />
+    <Content Include="Parts\kmb1_harbinger\Boom_NRM.dds" />
+    <Content Include="Parts\kmb1_harbinger\Truss_ALPHA.dds" />
+    <Content Include="Parts\kop1_seeker\Scope_DIFF.dds" />
+    <Content Include="Parts\kop1_seeker\Scope_NRM.dds" />
+    <Content Include="Parts\kvs1_watcher\scansat-recon-1-e.dds" />
+    <Content Include="Parts\kvs1_watcher\scansat-recon-1-n.dds" />
+    <Content Include="Parts\kvs1_watcher\scansat-recon-1.dds" />
+    <Content Include="Parts\kvs1_watcher\scansat-recon-reflect-1-n.dds" />
+    <Content Include="Parts\kvs1_watcher\scansat-recon-reflect-1-s.dds" />
+    <Content Include="Parts\kvs1_watcher\scansat-recon-reflect-1.dds" />
+    <Content Include="Parts\kvs3_gazer\scansat-recon-1-e.dds" />
+    <Content Include="Parts\kvs3_gazer\scansat-recon-1-n.dds" />
+    <Content Include="Parts\kvs3_gazer\scansat-recon-1.dds" />
+    <Content Include="Parts\kvs3_gazer\scansat-recon-reflect-1-n.dds" />
+    <Content Include="Parts\kvs3_gazer\scansat-recon-reflect-1-s.dds" />
+    <Content Include="Parts\kvs3_gazer\scansat-recon-reflect-1.dds" />
+  </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>
