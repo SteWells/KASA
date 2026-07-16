@@ -140,7 +140,7 @@
     <Content Include="Agencies\KASA_logo.png" />
     <Content Include="Agencies\KASA_logo_scaled.png" />
     <Content Include="Icons\arch.png" />
-    <Content Include="Icons\logistics_icon.png" />
+    <Content Include="Icons\logistics.png" />
     <Content Include="Icons\monolith.png" />
     <Content Include="Icons\pyramids.png" />
     <Content Include="Icons\unknown.png" />
