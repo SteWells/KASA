@@ -1,0 +1,9 @@
+<Solution>
+  <Configurations>
+    <Platform Name="Any CPU" />
+    <Platform Name="x64" />
+  </Configurations>
+  <Project Path="KASA.csproj" Id="2aafd02b-75f2-4140-91b7-fcb29ef22dac">
+    <Platform Solution="*|x64" Project="x64" />
+  </Project>
+</Solution>
