@@ -22,9 +22,9 @@
 // WHAT IS NOT HERE (deliberately)
 //   Background production. Stock drills/converters only tick while their
 //   vessel is LOADED. Until the duty-cycle certification + catch-up sim
-//   (step 4) is written, an unattended base produces NOTHING, so standing
-//   orders will have nothing to ship. This is expected, not a bug.
-//   Standing orders currently tick only in the foreground (TickOrders).
+//   (step 4) is written, an unattended base produces NOTHING, so an active
+//   route will drain the source's buffer and then sit on "waiting for cargo"
+//   until you return to the base. This is expected, not a bug.
 //
 // ---------------------------------------------------------------
 // FLAGGED FOR VERIFICATION (assumptions not testable outside KSP)
@@ -108,7 +108,17 @@ namespace KASA
         public string HaulerName = "";   // display only
         public double RecordedUT = 0;
 
+        // --- active-route automation (round trips only) ---
+        public bool Active = false;
+        public bool WaitForFull = true;                 // false = ship whatever is loaded
+        public string SourceHubId = "";                 // cargo source; empty falls back to HubA
+        public int Phase = 0;                            // 0 Idle, 1 Staged (loaded, holding), 2 InFlight
+        public Dictionary<string, double> Staged = new Dictionary<string, double>(); // held cargo
+        public string LastStatus = "";                  // live status for the window
+
         public string Id { get { return HubA + ">" + HubB; } }
+        public string Source { get { return string.IsNullOrEmpty(SourceHubId) ? HubA : SourceHubId; } }
+        public string Dest { get { return Source == HubA ? HubB : HubA; } }
 
         public double TotalTime { get { return LegAB.Time + LegBA.Time; } }
         public double FuelMass { get { return LegAB.FuelMass + LegBA.FuelMass; } }
@@ -159,6 +169,11 @@ namespace KASA
             n.AddValue("haulerId", HaulerId);
             n.AddValue("haulerName", HaulerName);
             n.AddValue("recordedUT", RecordedUT);
+            n.AddValue("active", Active);
+            n.AddValue("waitForFull", WaitForFull);
+            n.AddValue("sourceHubId", SourceHubId);
+            n.AddValue("phase", Phase);
+            { ConfigNode st = n.AddNode("STAGED"); foreach (var kv in Staged) st.AddValue(kv.Key, kv.Value); }
             LegAB.Save(n.AddNode("LEG_AB"));
             LegBA.Save(n.AddNode("LEG_BA"));
             ConfigNode p = n.AddNode("PAYLOAD");
@@ -177,6 +192,11 @@ namespace KASA
             if (bool.TryParse(n.GetValue("oneWay"), out b)) r.OneWay = b;
             if (double.TryParse(n.GetValue("vesselCost"), out d)) r.VesselCost = d;
             if (double.TryParse(n.GetValue("recordedUT"), out d)) r.RecordedUT = d;
+            if (bool.TryParse(n.GetValue("active"), out b)) r.Active = b;
+            if (bool.TryParse(n.GetValue("waitForFull"), out b)) r.WaitForFull = b; else r.WaitForFull = true;
+            r.SourceHubId = n.GetValue("sourceHubId") ?? "";
+            { int ph; if (int.TryParse(n.GetValue("phase"), out ph)) r.Phase = ph; }
+            { ConfigNode st = n.GetNode("STAGED"); if (st != null) foreach (ConfigNode.Value cv in st.values) { double sv; if (double.TryParse(cv.value, out sv)) r.Staged[cv.name] = sv; } }
             if (n.GetNode("LEG_AB") != null) r.LegAB = KASALeg.Load(n.GetNode("LEG_AB"));
             if (n.GetNode("LEG_BA") != null) r.LegBA = KASALeg.Load(n.GetNode("LEG_BA"));
             ConfigNode p = n.GetNode("PAYLOAD");
@@ -204,6 +224,7 @@ namespace KASA
         public bool MidpointDone = false;
         public string FarHubId = "";
         public double MidpointUT = 0;
+        public string SourceHubId = "";   // hub the player LOADED at = cargo source
 
         public Dictionary<string, double> Leg1 = new Dictionary<string, double>();
         public Dictionary<string, double> Leg2 = new Dictionary<string, double>();
@@ -220,6 +241,7 @@ namespace KASA
             n.AddValue("midpointDone", MidpointDone);
             n.AddValue("farHubId", FarHubId);
             n.AddValue("midpointUT", MidpointUT);
+            n.AddValue("sourceHubId", SourceHubId);
             SaveD(n, "LEG1", Leg1); SaveD(n, "LEG2", Leg2);
             SaveD(n, "PEAK", Peak); SaveD(n, "SAMPLE", Sample);
         }
@@ -232,6 +254,7 @@ namespace KASA
             r.StartHubId = n.GetValue("startHubId") ?? "";
             r.BodyName = n.GetValue("bodyName") ?? "";
             r.FarHubId = n.GetValue("farHubId") ?? "";
+            r.SourceHubId = n.GetValue("sourceHubId") ?? "";
             double d; bool b;
             if (double.TryParse(n.GetValue("startUT"), out d)) r.StartUT = d;
             if (double.TryParse(n.GetValue("midpointUT"), out d)) r.MidpointUT = d;
@@ -297,41 +320,6 @@ namespace KASA
     // ================================================================
     // STANDING ORDER — cycles an edge until a condition stalls it.
     // ================================================================
-    public class KASAStandingOrder
-    {
-        public string RouteId = "";
-        public string OriginHubId = "";
-        public string Resource = "";
-        public double FillTarget = double.MaxValue;  // stop when destination holds this much
-        public double Reserve = 0;                // leave this much at the origin
-        public bool Enabled = true;
-        public string LastStall = "";               // why it is idle, shown in the PAW
-
-        public void Save(ConfigNode n)
-        {
-            n.AddValue("routeId", RouteId);
-            n.AddValue("originHubId", OriginHubId);
-            n.AddValue("resource", Resource);
-            n.AddValue("fillTarget", FillTarget);
-            n.AddValue("reserve", Reserve);
-            n.AddValue("enabled", Enabled);
-        }
-
-        public static KASAStandingOrder Load(ConfigNode n)
-        {
-            KASAStandingOrder o = new KASAStandingOrder();
-            o.RouteId = n.GetValue("routeId") ?? "";
-            o.OriginHubId = n.GetValue("originHubId") ?? "";
-            o.Resource = n.GetValue("resource") ?? "";
-            double d; bool b;
-            if (double.TryParse(n.GetValue("fillTarget"), out d)) o.FillTarget = d;
-            if (double.TryParse(n.GetValue("reserve"), out d)) o.Reserve = d;
-            if (bool.TryParse(n.GetValue("enabled"), out b)) o.Enabled = b;
-            return o;
-        }
-    }
-
-
     // ================================================================
     // SCENARIO
     // ================================================================
@@ -346,12 +334,11 @@ namespace KASA
         public const string KSC_HUB = "KSC";
         public const double POOL_RANGE = 1000.0;   // metres — free local pooling
         private const double SAMPLE_INTERVAL = 0.5;
-        private const double ORDER_INTERVAL = 2.0;
+        private const double ROUTE_INTERVAL = 2.0;
 
         public Dictionary<string, KASARoute> Routes = new Dictionary<string, KASARoute>();
         public Dictionary<string, KASAActiveRecording> Recordings = new Dictionary<string, KASAActiveRecording>();
         public List<KASADispatch> Dispatches = new List<KASADispatch>();
-        public List<KASAStandingOrder> Orders = new List<KASAStandingOrder>();
 
         /// <summary>haulerId -> UT it is free again. This is what makes throughput finite.</summary>
         public Dictionary<string, double> HaulerBusyUntil = new Dictionary<string, double>();
@@ -362,7 +349,7 @@ namespace KASA
         public HashSet<string> RegisteredHubs = new HashSet<string>();
 
         private double lastSampleUT = 0;
-        private double lastOrderUT = 0;
+        private double lastRouteUT = 0;
 
         public static readonly HashSet<string> CargoResources = new HashSet<string>
         {
@@ -439,7 +426,6 @@ namespace KASA
             foreach (var r in Routes.Values) r.Save(node.AddNode("ROUTE"));
             foreach (var r in Recordings.Values) r.Save(node.AddNode("RECORDING"));
             foreach (var d in Dispatches) d.Save(node.AddNode("DISPATCH"));
-            foreach (var o in Orders) o.Save(node.AddNode("ORDER"));
             foreach (var kv in HaulerBusyUntil)
             {
                 ConfigNode b = node.AddNode("BUSY");
@@ -453,7 +439,7 @@ namespace KASA
         {
             base.OnLoad(node);
             Routes.Clear(); Recordings.Clear(); Dispatches.Clear();
-            Orders.Clear(); HaulerBusyUntil.Clear();
+            HaulerBusyUntil.Clear();
 
             foreach (ConfigNode n in node.GetNodes("ROUTE"))
             {
@@ -466,7 +452,6 @@ namespace KASA
                 if (!string.IsNullOrEmpty(r.HaulerId)) Recordings[r.HaulerId] = r;
             }
             foreach (ConfigNode n in node.GetNodes("DISPATCH")) Dispatches.Add(KASADispatch.Load(n));
-            foreach (ConfigNode n in node.GetNodes("ORDER")) Orders.Add(KASAStandingOrder.Load(n));
             foreach (ConfigNode n in node.GetNodes("BUSY"))
             {
                 double u;
@@ -494,7 +479,7 @@ namespace KASA
             }
 
             Debug.Log("[KASA] Logistics: " + Routes.Count + " routes, " + Recordings.Count +
-                      " recordings, " + Dispatches.Count + " in transit, " + Orders.Count + " orders.");
+                      " recordings, " + Dispatches.Count + " in transit.");
         }
 
         // ================================================================
@@ -872,6 +857,7 @@ namespace KASA
             route.HaulerName = v.vesselName;
             route.HubA = rec.StartHubId;
             route.HubB = rec.FarHubId;
+            route.SourceHubId = rec.SourceHubId;   // direction = where you loaded -> where you unloaded
 
             if (hub == rec.StartHubId)
             {
@@ -1003,6 +989,45 @@ namespace KASA
         // ================================================================
         // DISPATCH
         // ================================================================
+        /// <summary>Delete a route. Staged (loaded-but-not-departed) cargo is returned to the
+        /// source so nothing is lost; any already-in-transit cargo still lands (dispatches carry
+        /// their own dest/resource/amount); the hauler's busy lock clears itself.</summary>
+        public void DeleteRoute(string routeId)
+        {
+            KASARoute r;
+            if (!Routes.TryGetValue(routeId, out r)) return;
+            if (r.Staged != null && r.Staged.Count > 0)
+                foreach (var kv in r.Staged) PoolAdd(r.Source, kv.Key, kv.Value);
+            Routes.Remove(routeId);
+        }
+
+        /// <summary>Charge a round trip's fuel for `runs` runs, hauler tanks first then the
+        /// source pool. Returns false (with a reason) if it can't be paid; takes nothing then.</summary>
+        private bool ChargeRoundTripFuel(KASARoute route, string fromHub, int runs, out string reason)
+        {
+            reason = "";
+            Vessel hauler = VesselById(route.HaulerId);
+            var fuel = route.RoundTripFuel();
+            foreach (var kv in fuel)
+            {
+                double need = kv.Value * runs;
+                if (PoolAmount(fromHub, kv.Key) + VesselAmount(hauler, kv.Key) < need - 0.001)
+                {
+                    reason = "Needs " + need.ToString("F0") + " " + kv.Key + " for " + runs +
+                             " run(s); the hauler and its local pool cannot supply it.";
+                    return false;
+                }
+            }
+            // Draw from the hauler's own tanks first, then its local pool.
+            foreach (var kv in fuel)
+            {
+                double need = kv.Value * runs;
+                need -= TakeFromVessel(hauler, kv.Key, need);
+                if (need > 0.001) PoolTake(fromHub, kv.Key, need);
+            }
+            return true;
+        }
+
         public bool Dispatch(KASARoute route, string fromHub, string res, double amount, out string reason)
         {
             reason = "";
@@ -1059,25 +1084,7 @@ namespace KASA
             }
             else
             {
-                Vessel hauler = VesselById(route.HaulerId);
-                var fuel = route.RoundTripFuel();
-                foreach (var kv in fuel)
-                {
-                    double need = kv.Value * runs;
-                    if (PoolAmount(fromHub, kv.Key) + VesselAmount(hauler, kv.Key) < need - 0.001)
-                    {
-                        reason = "Needs " + need.ToString("F0") + " " + kv.Key + " for " + runs +
-                                 " run(s); the hauler and its local pool cannot supply it.";
-                        return false;
-                    }
-                }
-                // Draw from the hauler's own tanks first, then its local pool.
-                foreach (var kv in fuel)
-                {
-                    double need = kv.Value * runs;
-                    need -= TakeFromVessel(hauler, kv.Key, need);
-                    if (need > 0.001) PoolTake(fromHub, kv.Key, need);
-                }
+                if (!ChargeRoundTripFuel(route, fromHub, runs, out reason)) return false;
                 HaulerBusyUntil[route.HaulerId] = now + route.TotalTime * runs;
             }
 
@@ -1123,42 +1130,84 @@ namespace KASA
         // STANDING ORDERS
         // Foreground only until the background sim (step 4) exists.
         // ================================================================
-        private void TickOrders()
+        // ACTIVE ROUTES — the automation. A round-trip route toggled Active cycles:
+        //   Idle -> load a full (or, if !WaitForFull, partial) load at the source, which
+        //   drains the source so it keeps producing -> Staged (hold loaded at the source)
+        //   -> when the destination has room, charge fuel and fly the delivery leg ->
+        //   InFlight (deliver, then return) -> back to Idle. The two waits surface as
+        //   distinct status lines the player can act on.
+        // ================================================================
+        private void TickActiveRoutes()
         {
             double now = Planetarium.GetUniversalTime();
 
-            // Deterministic evaluation order (creation order). If edge A feeds fuel
-            // that edge B burns, B may run this tick or the next. Documented, not hidden.
-            foreach (KASAStandingOrder o in Orders)
+            foreach (KASARoute r in Routes.Values)
             {
-                if (!o.Enabled) continue;
+                if (!r.Active) continue;
+                if (r.OneWay) { r.Active = false; continue; }   // active = round trip only
 
-                KASARoute route;
-                if (!Routes.TryGetValue(o.RouteId, out route)) { o.LastStall = "route missing"; continue; }
+                string src = r.Source, dst = r.Dest;
+                if (VesselById(r.HaulerId) == null) { r.LastStatus = "hauler missing"; continue; }
 
-                string toHub = (o.OriginHubId == route.HubA) ? route.HubB : route.HubA;
-
-                if (!route.OneWay)
+                switch (r.Phase)
                 {
-                    double until;
-                    if (HaulerBusyUntil.TryGetValue(route.HaulerId, out until) && until > now)
-                    { o.LastStall = "hauler in transit"; continue; }
+                    case 0: // Idle — try to load at the source
+                        {
+                            var load = new Dictionary<string, double>();
+                            bool full = true; double total = 0;
+                            foreach (var kv in r.Payload)
+                            {
+                                double take = Math.Min(PoolAmount(src, kv.Key), kv.Value);
+                                if (take < kv.Value - 0.01) full = false;
+                                load[kv.Key] = take; total += take;
+                            }
+                            if ((r.WaitForFull && !full) || total <= 0.01) { r.LastStatus = "waiting for cargo"; break; }
+
+                            r.Staged = new Dictionary<string, double>();
+                            foreach (var kv in load)
+                            {
+                                if (kv.Value <= 0.01) continue;
+                                double got = PoolTake(src, kv.Key, kv.Value);
+                                if (got > 0) r.Staged[kv.Key] = got;
+                            }
+                            r.Phase = 1;
+                            r.LastStatus = "loaded, holding";
+                            break;
+                        }
+                    case 1: // Staged — loaded, hold at source until destination has room
+                        {
+                            bool room = true;
+                            foreach (var kv in r.Staged)
+                                if (PoolSpace(dst, kv.Key) < kv.Value - 0.01) { room = false; break; }
+                            if (!room) { r.LastStatus = "staged: destination full"; break; }
+
+                            string reason;
+                            if (!ChargeRoundTripFuel(r, src, 1, out reason)) { r.LastStatus = reason; break; }
+
+                            double deliveryUT = now + r.TimeFrom(src);
+                            foreach (var kv in r.Staged)
+                            {
+                                KASADispatch d = new KASADispatch();
+                                d.RouteId = r.Id; d.DestHubId = dst;
+                                d.Resource = kv.Key; d.Amount = kv.Value;
+                                d.ArrivalUT = deliveryUT;
+                                Dispatches.Add(d);
+                            }
+                            HaulerBusyUntil[r.HaulerId] = now + r.TotalTime;   // delivery + return
+                            r.Staged = new Dictionary<string, double>();
+                            r.Phase = 2;
+                            r.LastStatus = "in transit";
+                            break;
+                        }
+                    case 2: // InFlight — cargo delivered mid-way; wait out the return leg
+                        {
+                            double until;
+                            if (HaulerBusyUntil.TryGetValue(r.HaulerId, out until) && until > now)
+                                r.LastStatus = "in transit (" + FormatTime(until - now) + ")";
+                            else { r.Phase = 0; r.LastStatus = "ready"; }
+                            break;
+                        }
                 }
-
-                double have = PoolAmount(o.OriginHubId, o.Resource);
-                double spare = have - o.Reserve;
-                if (spare <= 0.01) { o.LastStall = "origin below reserve"; continue; }
-
-                double atDest = PoolAmount(toHub, o.Resource);
-                if (atDest >= o.FillTarget) { o.LastStall = "destination at fill target"; continue; }
-
-                double want = Math.Min(spare, route.Capacity);
-                if (o.FillTarget < double.MaxValue) want = Math.Min(want, o.FillTarget - atDest);
-                if (want <= 0.01) { o.LastStall = "nothing to move"; continue; }
-
-                string reason;
-                if (Dispatch(route, o.OriginHubId, o.Resource, want, out reason)) o.LastStall = "";
-                else o.LastStall = reason;
             }
         }
 
@@ -1211,11 +1260,11 @@ namespace KASA
             foreach (var key in HaulerBusyUntil.Where(k => k.Value <= now).Select(k => k.Key).ToList())
                 HaulerBusyUntil.Remove(key);
 
-            // --- standing orders ---
-            if (Orders.Count > 0 && now - lastOrderUT >= ORDER_INTERVAL)
+            // --- active routes ---
+            if (now - lastRouteUT >= ROUTE_INTERVAL)
             {
-                lastOrderUT = now;
-                TickOrders();
+                lastRouteUT = now;
+                TickActiveRoutes();
             }
         }
 
@@ -1291,6 +1340,13 @@ namespace KASA
         {
             string hub = KASALogisticsScenario.HubBeside(vessel);
             if (hub == null) { Msg("No crewed hub within 1km to load from."); return; }
+
+            // Direction capture: the hub you first load at is the route's source.
+            KASAActiveRecording rec;
+            if (KASALogisticsScenario.Instance != null &&
+                KASALogisticsScenario.Instance.Recordings.TryGetValue(vessel.id.ToString(), out rec) &&
+                string.IsNullOrEmpty(rec.SourceHubId))
+                rec.SourceHubId = hub;
 
             double totalLoaded = 0;
             string last = "";

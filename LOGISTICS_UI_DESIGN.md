@@ -89,12 +89,12 @@ list. Selectable cargo per route is derived from that route's recorded
   (b) Self-exclusion guard: optional `exclude` vessel threaded through
   `LocalPool`/`PoolAmount`/`PoolSpace`/`PoolTake`/`PoolAdd`; Load/Unload pass
   the hauler. Existing callers unchanged via default arg.
-- **Phase 2 — the window.** New `KASALogisticsUI.cs`: ApplicationLauncher
+- **Phase 2 — the window (DONE).** New `KASALogisticsUI.cs`: ApplicationLauncher
   button (CTB-wrapped window), universal hub/route list, Send/Request, live
   countdowns, per-resource orders, register toggle. Adds the `RegisteredHubs`
   registry + Save/Load/migration to the scenario. Both PAW and window live
   simultaneously through this phase.
-- **Phase 3 — cleanup, once the window is verified in-game.** Strip
+- **Phase 3 — cleanup (DONE).** Strip
   `KASALogisticsHub` PAW events (keep as marker); move the MM patch from
   ISRUs/labs onto command parts. Only after the window has replaced the
   control surface.
@@ -103,3 +103,39 @@ list. Selectable cargo per route is derived from that route's recorded
 - Toolbar icon: 38×38 PNG. Placeholder until supplied.
 - `AllHubVessels` gains a `RegisteredHubs` filter in Phase 2 (Phase 1 leaves it
   as-is so nothing de-registers before the window exists).
+
+
+## Active routes (supersedes standing orders)
+Standing orders (origin-anchored push, hidden per-hub list, reserve/fill-target)
+were **removed** — the direction was confusing and orders were hard to find. They
+are replaced by a per-route **Active** toggle. Round trips only; one-way routes
+keep manual Send/Request.
+
+**Direction** is captured automatically at recording: the hub you first `Load` at
+is the source, the other end is the destination (`KASARoute.SourceHubId`, written
+in `CompleteRecording` from `KASAActiveRecording.SourceHubId`, set in the tug's
+`LoadFromHub`). A swap capability is intentionally NOT surfaced; re-record if a
+legacy route has no direction. Existing pre-change routes fall back to HubA = source.
+
+**Lifecycle** (`TickActiveRoutes`, runs every ROUTE_INTERVAL, foreground and
+background): Idle → load a full load at the source (drains it so it keeps
+producing) → Staged (hold loaded at source) → when the destination has room for
+the load, charge fuel and fly the delivery leg → InFlight (deliver mid-way, then
+return) → Idle. Staging is the key: cargo leaves the source tank on load, so the
+base keeps drilling even while the destination is backed up. Failure modes surface
+as status lines: "waiting for cargo" (source can't fill), "staged: destination
+full" (destination can't accept), plus in-transit ETA.
+
+**Settings per route:** `Active`, `WaitForFull` (default true; false = ship partial,
+still full fuel), auto-captured direction, `LastStatus` for the window.
+
+**Window:** each round-trip route row gets the Active toggle + live status; manual
+Send/Request are disabled while a route is Active (prevents double-booking the
+hauler). No orders list, no reserve/fill fields.
+
+**Fuel** is charged at departure via the shared `ChargeRoundTripFuel` helper
+(extracted from `Dispatch`), hauler tanks first then the source pool.
+
+**Deferred:** multi-resource routes work through this path (one dispatch per staged
+resource) but recording a genuine multi-resource manifest is still unproven.
+LF/Ox routes remain the open nice-to-have (part-aware fuel/cargo seam).

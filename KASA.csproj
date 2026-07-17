@@ -165,6 +165,7 @@
     <Content Include="Parts\kvs3_gazer\scansat-recon-reflect-1-n.dds" />
     <Content Include="Parts\kvs3_gazer\scansat-recon-reflect-1-s.dds" />
     <Content Include="Parts\kvs3_gazer\scansat-recon-reflect-1.dds" />
+    <Content Include="ProgressiveCBMaps\Plugins\ProgressiveCBMaps.dll" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

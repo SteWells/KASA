@@ -1,19 +1,16 @@
 // ================================================================
-// KASA Logistics — universal control window (Phase 2)
+// KASA Logistics — universal control window
 // ----------------------------------------------------------------
-// Toolbar-launched window that manages every REGISTERED hub from one
-// place: routes shown as bidirectional edges with Send/Request, live
-// in-transit countdowns, per-resource standing orders, and the
-// register-as-hub toggle. Pure view/controller over the scenario —
-// no logistics logic lives here.
+// Toolbar-launched, resizable window with two tabs:
+//   Hubs   — register/unregister hubs.
+//   Routes — every route once, with the Active toggle + live status,
+//            one-shot Send/Reverse, and delete.
+// Pure view/controller over KASALogisticsScenario.
 //
 // COMPILE NOTES (can't be verified outside KSP):
-//   * Needs a project reference to ClickThroughBlocker.dll, and the
-//     `using ClickThroughFix;` below. If your CTB version names the
-//     class/method differently, the only call to change is the one in
-//     OnGUI (ClickThruBlocker.GUILayoutWindow).
-//   * Icon is loaded from GameData-relative "KASA/Icons/logistics".
-//     Change ICON_PATH if your icons live elsewhere.
+//   * Needs ClickThroughBlocker.dll referenced (using ClickThroughFix).
+//     The only CTB call is in OnGUI (ClickThruBlocker.GUILayoutWindow).
+//   * Icon loaded from GameData-relative ICON_PATH below.
 // ================================================================
 
 using System;
@@ -35,6 +32,10 @@ namespace KASA
         Rect windowRect = new Rect(150, 120, 470, 540);
         Vector2 scroll = Vector2.zero;
         readonly int winId = "KASALogisticsUI".GetHashCode();
+
+        int tab;                       // 0 Hubs, 1 Routes
+        bool resizing;
+        string pendingDelete = "";     // routeId awaiting a confirm click
 
         List<string> resList = new List<string>();
         int resIndex;
@@ -83,7 +84,12 @@ namespace KASA
             if (!show || !HighLogic.LoadedSceneIsFlight) return;
             if (KASALogisticsScenario.Instance == null) return;
             GUI.skin = HighLogic.Skin;
-            windowRect = ClickThruBlocker.GUILayoutWindow(winId, windowRect, DrawWindow, "KASA Logistics");
+            // Fixed to windowRect's size; the resize grip owns width/height, so we only
+            // take the dragged position back from the returned rect.
+            Rect r = ClickThruBlocker.GUILayoutWindow(winId, windowRect, DrawWindow, "KASA Logistics",
+                GUILayout.Width(windowRect.width), GUILayout.Height(windowRect.height));
+            windowRect.x = r.x;
+            windowRect.y = r.y;
         }
 
         static void Msg(string s)
@@ -104,119 +110,63 @@ namespace KASA
 
             GUILayout.BeginVertical();
 
-            // --- action parameters (shared by every Send/Request/Order button) ---
-            GUILayout.BeginHorizontal(GUI.skin.box);
-            GUILayout.Label("Cargo:", GUILayout.Width(48));
-            if (GUILayout.Button("<", GUILayout.Width(24)) && resList.Count > 0)
-                resIndex = (resIndex - 1 + resList.Count) % resList.Count;
-            GUILayout.Label(SelRes, GUILayout.Width(110));
-            if (GUILayout.Button(">", GUILayout.Width(24)) && resList.Count > 0)
-                resIndex = (resIndex + 1) % resList.Count;
-            GUILayout.FlexibleSpace();
-            GUILayout.Label("Amount:", GUILayout.Width(58));
-            amountText = GUILayout.TextField(amountText ?? "", GUILayout.Width(80));
-            GUILayout.EndHorizontal();
+            int newTab = GUILayout.Toolbar(tab, new[] { "Hubs", "Routes" });
+            if (newTab != tab) { tab = newTab; pendingDelete = ""; }
+            GUILayout.Space(2);
 
-            // --- in transit ---
-            var inflight = s.Dispatches.OrderBy(d => d.ArrivalUT).ToList();
-            GUILayout.Label("In transit (" + inflight.Count + ")");
-            if (inflight.Count == 0)
-                GUILayout.Label("   nothing moving.");
-            else
-                foreach (var d in inflight)
-                {
-                    double left = d.ArrivalUT - now;
-                    string eta = left > 0 ? "ETA " + KASALogisticsScenario.FormatTime(left) : "arriving…";
-                    GUILayout.Label("   " + d.Resource + " x" + d.Amount.ToString("F0") + " -> " +
-                                    KASALogisticsScenario.HubDisplayName(d.DestHubId) + "   " + eta);
-                }
+            scroll = GUILayout.BeginScrollView(scroll, GUILayout.ExpandHeight(true));
+            if (tab == 0) DrawHubsTab(s);
+            else DrawRoutesTab(s, now);
+            GUILayout.EndScrollView();
 
-            GUILayout.Space(4);
-            scroll = GUILayout.BeginScrollView(scroll);
+            GUILayout.EndVertical();
 
-            // --- registered hubs ---
+            // resize grip (bottom-right) — handled before DragWindow so it consumes its clicks
+            Rect grip = new Rect(windowRect.width - 20, windowRect.height - 20, 18, 18);
+            GUI.Box(grip, "\u25E2");
+            HandleResize(grip);
+
+            GUI.DragWindow();   // drag from any empty area; controls capture their own clicks
+        }
+
+        void HandleResize(Rect grip)
+        {
+            Event e = Event.current;
+            if (e.type == EventType.MouseDown && grip.Contains(e.mousePosition)) { resizing = true; e.Use(); }
+            else if (e.type == EventType.MouseUp && resizing) { resizing = false; }
+            else if (e.type == EventType.MouseDrag && resizing)
+            {
+                windowRect.width = Mathf.Max(380f, windowRect.width + e.delta.x);
+                windowRect.height = Mathf.Max(300f, windowRect.height + e.delta.y);
+                e.Use();
+            }
+        }
+
+        // ---------------------------------------------------------------- Hubs tab
+        void DrawHubsTab(KASALogisticsScenario s)
+        {
             var hubs = KASALogisticsScenario.AllHubVessels();
+            GUILayout.Label("Registered hubs (" + hubs.Count + ")");
             if (hubs.Count == 0)
-                GUILayout.Label("No hubs registered yet. Register one below.");
-
+                GUILayout.Label("   none — register one below.");
             foreach (Vessel hv in hubs)
             {
-                string hid = hv.id.ToString();
-                GUILayout.BeginVertical(GUI.skin.box);
-
-                GUILayout.BeginHorizontal();
-                GUILayout.Label("<b>" + hv.vesselName + "</b>");
+                GUILayout.BeginHorizontal(GUI.skin.box);
+                GUILayout.Label(hv.vesselName);
                 GUILayout.FlexibleSpace();
                 if (GUILayout.Button("Unregister", GUILayout.Width(90)))
                 {
-                    s.RegisteredHubs.Remove(hid);
+                    s.RegisteredHubs.Remove(hv.id.ToString());
                     Msg(hv.vesselName + " is no longer a hub.");
                 }
                 GUILayout.EndHorizontal();
-
-                // routes touching this hub
-                var routes = s.Routes.Values.Where(r => r.HubA == hid || r.HubB == hid).ToList();
-                if (routes.Count == 0)
-                    GUILayout.Label("   no routes.");
-                foreach (var r in routes)
-                {
-                    string other = (r.HubA == hid) ? r.HubB : r.HubA;
-                    string payload = string.Join(", ",
-                        r.Payload.Select(kv => kv.Key + " " + kv.Value.ToString("F0")).ToArray());
-                    double time = r.OneWay ? r.LegAB.Time : r.TotalTime;
-
-                    GUILayout.Label("   " + (r.OneWay ? "-> " : "<-> ") +
-                                    KASALogisticsScenario.HubDisplayName(other) +
-                                    "  ·  " + (payload.Length > 0 ? payload : "empty") +
-                                    "  ·  " + KASALogisticsScenario.FormatTime(time));
-
-                    bool canSend = (r.HubA == hid) || (r.HubB == hid && !r.OneWay);
-                    bool canReq  = (r.HubB == hid) || (r.HubA == hid && !r.OneWay);
-
-                    GUILayout.BeginHorizontal();
-                    GUILayout.Space(18);
-                    GUI.enabled = canSend;
-                    if (GUILayout.Button("Send " + SelRes + " ->", GUILayout.Width(150)))
-                        DoDispatch(r, hid);
-                    GUI.enabled = canReq;
-                    if (GUILayout.Button("<- Request", GUILayout.Width(110)))
-                        DoDispatch(r, other);
-                    GUI.enabled = true;
-                    if (GUILayout.Button("Order", GUILayout.Width(64)))
-                        AddOrder(r, hid);
-                    GUILayout.EndHorizontal();
-                }
-
-                // standing orders originating here
-                var orders = s.Orders.Where(o => o.OriginHubId == hid).ToList();
-                if (orders.Count > 0)
-                {
-                    GUILayout.Label("   Standing orders:");
-                    foreach (var o in orders)
-                    {
-                        GUILayout.BeginHorizontal();
-                        string status = string.IsNullOrEmpty(o.LastStall) ? "running" : "stalled: " + o.LastStall;
-                        GUILayout.Label("      " + o.Resource + "  reserve " + o.Reserve.ToString("F0") +
-                                        "  [" + status + "]");
-                        GUILayout.FlexibleSpace();
-                        if (GUILayout.Button("x", GUILayout.Width(24)))
-                        {
-                            s.Orders.Remove(o);
-                            Msg("Standing order cancelled: " + o.Resource + " at " + hv.vesselName + ".");
-                        }
-                        GUILayout.EndHorizontal();
-                    }
-                }
-
-                GUILayout.EndVertical();
             }
 
-            // --- register new hubs ---
             var candidates = KASALogisticsScenario.AllHubMarkerVessels()
                 .Where(v => !s.RegisteredHubs.Contains(v.id.ToString())).ToList();
             if (candidates.Count > 0)
             {
-                GUILayout.Space(4);
+                GUILayout.Space(6);
                 GUILayout.Label("Register a hub:");
                 foreach (Vessel cv in candidates)
                 {
@@ -231,44 +181,108 @@ namespace KASA
                     GUILayout.EndHorizontal();
                 }
             }
-
-            GUILayout.EndScrollView();
-            GUILayout.EndVertical();
-            GUI.DragWindow(new Rect(0, 0, 10000, 22));
         }
 
-        // ---------------------------------------------------------------- actions
+        // ---------------------------------------------------------------- Routes tab
+        void DrawRoutesTab(KASALogisticsScenario s, double now)
+        {
+            // one-shot action parameters
+            GUILayout.BeginHorizontal(GUI.skin.box);
+            GUILayout.Label("Cargo:", GUILayout.Width(48));
+            if (GUILayout.Button("<", GUILayout.Width(24)) && resList.Count > 0)
+                resIndex = (resIndex - 1 + resList.Count) % resList.Count;
+            GUILayout.Label(SelRes, GUILayout.Width(110));
+            if (GUILayout.Button(">", GUILayout.Width(24)) && resList.Count > 0)
+                resIndex = (resIndex + 1) % resList.Count;
+            GUILayout.FlexibleSpace();
+            GUILayout.Label("Amount:", GUILayout.Width(58));
+            amountText = GUILayout.TextField(amountText ?? "", GUILayout.Width(80));
+            GUILayout.EndHorizontal();
+
+            // in transit
+            var inflight = s.Dispatches.OrderBy(d => d.ArrivalUT).ToList();
+            GUILayout.Label("In transit (" + inflight.Count + ")");
+            foreach (var d in inflight)
+            {
+                double left = d.ArrivalUT - now;
+                string eta = left > 0 ? "ETA " + KASALogisticsScenario.FormatTime(left) : "arriving…";
+                GUILayout.Label("   " + d.Resource + " x" + d.Amount.ToString("F0") + " -> " +
+                                KASALogisticsScenario.HubDisplayName(d.DestHubId) + "   " + eta);
+            }
+
+            GUILayout.Space(4);
+            GUILayout.Label("Routes (" + s.Routes.Count + ")");
+            if (s.Routes.Count == 0)
+                GUILayout.Label("   none recorded yet.");
+
+            foreach (var r in s.Routes.Values.ToList())
+            {
+                GUILayout.BeginVertical(GUI.skin.box);
+
+                string payload = string.Join(", ",
+                    r.Payload.Select(kv => kv.Key + " " + kv.Value.ToString("F0")).ToArray());
+                double time = r.OneWay ? r.LegAB.Time : r.TotalTime;
+                GUILayout.Label("<b>" + KASALogisticsScenario.HubDisplayName(r.Source) + " -> " +
+                                KASALogisticsScenario.HubDisplayName(r.Dest) + "</b>" +
+                                (r.OneWay ? "  (one-way)" : ""));
+                GUILayout.Label("   " + (payload.Length > 0 ? payload : "empty") +
+                                "  ·  " + KASALogisticsScenario.FormatTime(time));
+
+                // Active toggle + live status (round trips only)
+                if (!r.OneWay)
+                {
+                    GUILayout.BeginHorizontal();
+                    bool nowActive = GUILayout.Toggle(r.Active, r.Active ? " Active" : " Activate",
+                                                      GUILayout.Width(90));
+                    if (nowActive != r.Active)
+                    {
+                        r.Active = nowActive;
+                        if (!nowActive) r.LastStatus = "";   // staged cargo stays put
+                    }
+                    if (r.Active)
+                        GUILayout.Label("  " + (string.IsNullOrEmpty(r.LastStatus) ? "starting…" : r.LastStatus));
+                    GUILayout.EndHorizontal();
+                }
+
+                // one-shot manual dispatch (disabled while active) + delete
+                GUILayout.BeginHorizontal();
+                GUI.enabled = !r.Active;
+                if (GUILayout.Button("Send " + SelRes + " ->", GUILayout.Width(150)))
+                    DoDispatch(r, r.Source);
+                GUI.enabled = !r.Active && !r.OneWay;
+                if (GUILayout.Button("<- Reverse", GUILayout.Width(100)))
+                    DoDispatch(r, r.Dest);
+                GUI.enabled = true;
+                GUILayout.FlexibleSpace();
+                if (pendingDelete == r.Id)
+                {
+                    if (GUILayout.Button("Confirm", GUILayout.Width(80)))
+                    {
+                        s.DeleteRoute(r.Id);
+                        Msg("Route deleted.");
+                        pendingDelete = "";
+                    }
+                    if (GUILayout.Button("x", GUILayout.Width(24)))
+                        pendingDelete = "";
+                }
+                else if (GUILayout.Button("Delete", GUILayout.Width(70)))
+                {
+                    pendingDelete = r.Id;
+                }
+                GUILayout.EndHorizontal();
+
+                GUILayout.EndVertical();
+            }
+        }
+
+        // ---------------------------------------------------------------- action
         void DoDispatch(KASARoute route, string fromHub)
         {
             double amt = Amount();
             if (amt <= 0) { Msg("Set a valid amount first."); return; }
             string reason;
-            if (KASALogisticsScenario.Instance.Dispatch(route, fromHub, SelRes, amt, out reason))
-                Msg(reason);          // Dispatch reports the run summary on success
-            else
-                Msg(reason);          // …and the stall reason on failure
-        }
-
-        void AddOrder(KASARoute route, string originHub)
-        {
-            var s = KASALogisticsScenario.Instance;
-            if (s.Orders.Any(o => o.OriginHubId == originHub && o.Resource == SelRes))
-            {
-                Msg("A standing order for " + SelRes + " already exists here.");
-                return;
-            }
-            double amt = Amount();
-            var order = new KASAStandingOrder
-            {
-                RouteId = route.Id,
-                OriginHubId = originHub,
-                Resource = SelRes,
-                Reserve = amt,                 // amount doubles as the origin reserve
-                FillTarget = double.MaxValue   // ship until the destination is full
-            };
-            s.Orders.Add(order);
-            Msg("Standing order: ship " + SelRes + " from " +
-                KASALogisticsScenario.HubDisplayName(originHub) + ", keeping " + amt.ToString("F0") + " here.");
+            KASALogisticsScenario.Instance.Dispatch(route, fromHub, SelRes, amt, out reason);
+            Msg(reason);   // Dispatch reports the run summary or the failure reason
         }
     }
 }
