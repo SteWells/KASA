@@ -230,6 +230,7 @@ namespace KASA
         public Dictionary<string, double> Leg2 = new Dictionary<string, double>();
         public Dictionary<string, double> Peak = new Dictionary<string, double>();
         public Dictionary<string, double> Sample = new Dictionary<string, double>();
+        public Dictionary<string, double> Loaded = new Dictionary<string, double>(); // payload = what was loaded at the source
 
         public void Save(ConfigNode n)
         {
@@ -244,6 +245,7 @@ namespace KASA
             n.AddValue("sourceHubId", SourceHubId);
             SaveD(n, "LEG1", Leg1); SaveD(n, "LEG2", Leg2);
             SaveD(n, "PEAK", Peak); SaveD(n, "SAMPLE", Sample);
+            SaveD(n, "LOADED", Loaded);
         }
 
         public static KASAActiveRecording Load(ConfigNode n)
@@ -261,6 +263,7 @@ namespace KASA
             if (bool.TryParse(n.GetValue("midpointDone"), out b)) r.MidpointDone = b;
             r.Leg1 = LoadD(n, "LEG1"); r.Leg2 = LoadD(n, "LEG2");
             r.Peak = LoadD(n, "PEAK"); r.Sample = LoadD(n, "SAMPLE");
+            r.Loaded = LoadD(n, "LOADED");
             return r;
         }
 
@@ -355,7 +358,8 @@ namespace KASA
         {
             "Regocite", "Glassmonite", "Ferrosite", "Kerium", "Evonite",
             "Moherium", "Laythite", "Elysium", "Consumables",
-            "PrismaticGel", "DenseOxidiser", "ThermicMix", "Aetherium", "Ore"
+            "PrismaticGel", "DenseOxidiser", "ThermicMix", "Aetherium", "Ore",
+            "LiquidFuel", "Oxidizer"
         };
 
         private static readonly HashSet<string> IgnoredForFuel = new HashSet<string>
@@ -364,6 +368,25 @@ namespace KASA
         };
 
         public static bool IsCargo(string r) { return CargoResources.Contains(r); }
+
+        // Dual-use resources are BOTH cargo and propellant. They count as cargo only in a
+        // KASA holding tank (KASACargoTank) and as fuel only in a normal feed tank, so a
+        // route can haul them without a tanker burning its own load or draining a station's
+        // maneuvering fuel. Everything else ignores the distinction.
+        public static readonly HashSet<string> DualUse = new HashSet<string> { "LiquidFuel", "Oxidizer" };
+        public static bool IsDualUse(string r) { return DualUse.Contains(r); }
+        public static bool IsPureCargo(string r) { return CargoResources.Contains(r) && !DualUse.Contains(r); }
+
+        static bool PartIsCargoTank(Part p)
+        {
+            return p != null && p.Modules != null && p.Modules.Contains("KASACargoTank");
+        }
+        static bool ProtoIsCargoTank(ProtoPartSnapshot pps)
+        {
+            if (pps == null) return false;
+            foreach (ProtoPartModuleSnapshot m in pps.modules) if (m.moduleName == "KASACargoTank") return true;
+            return false;
+        }
 
         public override void OnAwake()
         {
@@ -604,52 +627,69 @@ namespace KASA
         // ================================================================
         // RESOURCE ACCESS (loaded and unloaded)
         // ================================================================
-        public static double VesselAmount(Vessel v, string res)
+        public static double VesselAmount(Vessel v, string res, bool cargoIntent = true)
         {
             double t = 0;
             if (v == null) return 0;
+            bool dual = IsDualUse(res);
             if (v.loaded)
             {
                 foreach (Part p in v.parts)
+                {
+                    if (dual && PartIsCargoTank(p) != cargoIntent) continue;
                     foreach (PartResource r in p.Resources)
                         if (r.resourceName == res) t += r.amount;
+                }
             }
             else if (v.protoVessel != null)
             {
                 foreach (ProtoPartSnapshot pps in v.protoVessel.protoPartSnapshots)
+                {
+                    if (dual && ProtoIsCargoTank(pps) != cargoIntent) continue;
                     foreach (ProtoPartResourceSnapshot prs in pps.resources)
                         if (prs.resourceName == res) t += prs.amount;
+                }
             }
             return t;
         }
 
-        public static double VesselSpace(Vessel v, string res)
+        public static double VesselSpace(Vessel v, string res, bool cargoIntent = true)
         {
             double t = 0;
             if (v == null) return 0;
+            bool dual = IsDualUse(res);
             if (v.loaded)
             {
                 foreach (Part p in v.parts)
+                {
+                    if (dual && PartIsCargoTank(p) != cargoIntent) continue;
                     foreach (PartResource r in p.Resources)
                         if (r.resourceName == res) t += (r.maxAmount - r.amount);
+                }
             }
             else if (v.protoVessel != null)
             {
                 foreach (ProtoPartSnapshot pps in v.protoVessel.protoPartSnapshots)
+                {
+                    if (dual && ProtoIsCargoTank(pps) != cargoIntent) continue;
                     foreach (ProtoPartResourceSnapshot prs in pps.resources)
                         if (prs.resourceName == res) t += (prs.maxAmount - prs.amount);
+                }
             }
             return t;
         }
 
-        public static double AddToVessel(Vessel v, string res, double amount)
+        public static double AddToVessel(Vessel v, string res, double amount, bool cargoIntent = true)
         {
             double remaining = amount;
             if (v == null || amount <= 0) return 0;
+            bool dual = IsDualUse(res);
 
             if (v.loaded)
             {
                 foreach (Part p in v.parts)
+                {
+                    if (dual && PartIsCargoTank(p) != cargoIntent) continue;
                     foreach (PartResource r in p.Resources)
                     {
                         if (r.resourceName != res) continue;
@@ -659,10 +699,13 @@ namespace KASA
                         r.amount += add; remaining -= add;
                         if (remaining <= 0) return amount;
                     }
+                }
             }
             else if (v.protoVessel != null)
             {
                 foreach (ProtoPartSnapshot pps in v.protoVessel.protoPartSnapshots)
+                {
+                    if (dual && ProtoIsCargoTank(pps) != cargoIntent) continue;
                     foreach (ProtoPartResourceSnapshot prs in pps.resources)
                     {
                         if (prs.resourceName != res) continue;
@@ -672,18 +715,22 @@ namespace KASA
                         prs.amount += add; remaining -= add;
                         if (remaining <= 0) return amount;
                     }
+                }
             }
             return amount - remaining;
         }
 
-        public static double TakeFromVessel(Vessel v, string res, double amount)
+        public static double TakeFromVessel(Vessel v, string res, double amount, bool cargoIntent = true)
         {
             double remaining = amount;
             if (v == null || amount <= 0) return 0;
+            bool dual = IsDualUse(res);
 
             if (v.loaded)
             {
                 foreach (Part p in v.parts)
+                {
+                    if (dual && PartIsCargoTank(p) != cargoIntent) continue;
                     foreach (PartResource r in p.Resources)
                     {
                         if (r.resourceName != res || r.amount <= 0) continue;
@@ -691,10 +738,13 @@ namespace KASA
                         r.amount -= take; remaining -= take;
                         if (remaining <= 0) return amount;
                     }
+                }
             }
             else if (v.protoVessel != null)
             {
                 foreach (ProtoPartSnapshot pps in v.protoVessel.protoPartSnapshots)
+                {
+                    if (dual && ProtoIsCargoTank(pps) != cargoIntent) continue;
                     foreach (ProtoPartResourceSnapshot prs in pps.resources)
                     {
                         if (prs.resourceName != res || prs.amount <= 0) continue;
@@ -702,34 +752,35 @@ namespace KASA
                         prs.amount -= take; remaining -= take;
                         if (remaining <= 0) return amount;
                     }
+                }
             }
             return amount - remaining;
         }
 
         // ---- Pool-level access. KSC has infinite storage, backed by funds. ----
 
-        public static double PoolAmount(string hubId, string res, Vessel exclude = null)
+        public static double PoolAmount(string hubId, string res, Vessel exclude = null, bool cargoIntent = true)
         {
             if (IsKSC(hubId)) return double.MaxValue;
             Vessel v = VesselById(hubId);
             if (v == null) return 0;
             double t = 0;
-            foreach (Vessel h in LocalPool(v, exclude)) t += VesselAmount(h, res);
+            foreach (Vessel h in LocalPool(v, exclude)) t += VesselAmount(h, res, cargoIntent);
             return t;
         }
 
-        public static double PoolSpace(string hubId, string res, Vessel exclude = null)
+        public static double PoolSpace(string hubId, string res, Vessel exclude = null, bool cargoIntent = true)
         {
             if (IsKSC(hubId)) return double.MaxValue;
             Vessel v = VesselById(hubId);
             if (v == null) return 0;
             double t = 0;
-            foreach (Vessel h in LocalPool(v, exclude)) t += VesselSpace(h, res);
+            foreach (Vessel h in LocalPool(v, exclude)) t += VesselSpace(h, res, cargoIntent);
             return t;
         }
 
         /// <summary>Take from a pool. At KSC this is a PURCHASE and may fail on funds. [V3]</summary>
-        public static double PoolTake(string hubId, string res, double amount, Vessel exclude = null)
+        public static double PoolTake(string hubId, string res, double amount, Vessel exclude = null, bool cargoIntent = true)
         {
             if (amount <= 0) return 0;
 
@@ -752,13 +803,13 @@ namespace KASA
             foreach (Vessel h in LocalPool(v, exclude))
             {
                 if (remaining <= 0) break;
-                remaining -= TakeFromVessel(h, res, remaining);
+                remaining -= TakeFromVessel(h, res, remaining, cargoIntent);
             }
             return amount - remaining;
         }
 
         /// <summary>Add to a pool. At KSC this is a SALE and CREDITS funds. [V3]</summary>
-        public static double PoolAdd(string hubId, string res, double amount, Vessel exclude = null)
+        public static double PoolAdd(string hubId, string res, double amount, Vessel exclude = null, bool cargoIntent = true)
         {
             if (amount <= 0) return 0;
 
@@ -777,7 +828,7 @@ namespace KASA
             foreach (Vessel h in LocalPool(v, exclude))
             {
                 if (remaining <= 0) break;
-                remaining -= AddToVessel(h, res, remaining);
+                remaining -= AddToVessel(h, res, remaining, cargoIntent);
             }
             return amount - remaining;
         }
@@ -820,7 +871,6 @@ namespace KASA
             rec.BodyName = v.mainBody.bodyName;
             rec.StartUT = Planetarium.GetUniversalTime();
             rec.Sample = VesselResources(v);
-            TrackPeak(rec, v);
 
             Recordings[rec.HaulerId] = rec;
             Debug.Log("[KASA] Logistics: recording started at hub " + HubDisplayName(hub));
@@ -847,12 +897,11 @@ namespace KASA
             { reason = "Park within " + POOL_RANGE + "m of a crewed hub to close the route."; return false; }
 
             SampleFuel(rec, v);
-            TrackPeak(rec, v);
 
             double now = Planetarium.GetUniversalTime();
             KASARoute route = new KASARoute();
             route.BodyName = rec.BodyName;
-            route.Payload = new Dictionary<string, double>(rec.Peak);
+            route.Payload = new Dictionary<string, double>(rec.Loaded.Count > 0 ? rec.Loaded : rec.Peak);
             route.RecordedUT = now;
             route.HaulerName = v.vesselName;
             route.HubA = rec.StartHubId;
@@ -960,7 +1009,7 @@ namespace KASA
 
             foreach (var kv in now)
             {
-                if (IsCargo(kv.Key) || IgnoredForFuel.Contains(kv.Key)) continue;
+                if (IsPureCargo(kv.Key) || IgnoredForFuel.Contains(kv.Key)) continue;
                 double before;
                 if (!rec.Sample.TryGetValue(kv.Key, out before)) continue;
                 double delta = before - kv.Value;
@@ -971,19 +1020,6 @@ namespace KASA
                 }
             }
             rec.Sample = now;
-        }
-
-        /// <summary>Payload = PEAK cargo carried at any moment. Handles empty-out, loaded-back.</summary>
-        private static void TrackPeak(KASAActiveRecording rec, Vessel v)
-        {
-            if (!v.loaded) return;
-            foreach (var kv in VesselResources(v))
-            {
-                if (!IsCargo(kv.Key) || kv.Value <= 0) continue;
-                double peak;
-                if (!rec.Peak.TryGetValue(kv.Key, out peak) || kv.Value > peak)
-                    rec.Peak[kv.Key] = kv.Value;
-            }
         }
 
         // ================================================================
@@ -1003,27 +1039,44 @@ namespace KASA
 
         /// <summary>Charge a round trip's fuel for `runs` runs, hauler tanks first then the
         /// source pool. Returns false (with a reason) if it can't be paid; takes nothing then.</summary>
+        /// <summary>Record cargo loaded onto a hauler mid-recording — this becomes the route payload.</summary>
+        public void RecordLoaded(Vessel v, string res, double amount)
+        {
+            KASAActiveRecording rec;
+            if (v == null || amount <= 0 || !Recordings.TryGetValue(v.id.ToString(), out rec)) return;
+            double cur; rec.Loaded.TryGetValue(res, out cur); rec.Loaded[res] = cur + amount;
+        }
+
+        /// <summary>Rebase the fuel sample after a load/unload so the cargo jump is not counted as burn.</summary>
+        public void ResetFuelSample(Vessel v)
+        {
+            KASAActiveRecording rec;
+            if (v != null && Recordings.TryGetValue(v.id.ToString(), out rec)) rec.Sample = VesselResources(v);
+        }
+
         private bool ChargeRoundTripFuel(KASARoute route, string fromHub, int runs, out string reason)
         {
             reason = "";
             Vessel hauler = VesselById(route.HaulerId);
             var fuel = route.RoundTripFuel();
+            // Propellant comes from FEED tanks, never cargo holding tanks — cargoIntent:false —
+            // so a tanker hauling LF/Ox cargo never burns its own load (or the hub's).
             foreach (var kv in fuel)
             {
                 double need = kv.Value * runs;
-                if (PoolAmount(fromHub, kv.Key) + VesselAmount(hauler, kv.Key) < need - 0.001)
+                if (PoolAmount(fromHub, kv.Key, null, false) + VesselAmount(hauler, kv.Key, false) < need - 0.001)
                 {
                     reason = "Needs " + need.ToString("F0") + " " + kv.Key + " for " + runs +
                              " run(s); the hauler and its local pool cannot supply it.";
                     return false;
                 }
             }
-            // Draw from the hauler's own tanks first, then its local pool.
+            // Draw from the hauler's own feed tanks first, then its local pool's feed tanks.
             foreach (var kv in fuel)
             {
                 double need = kv.Value * runs;
-                need -= TakeFromVessel(hauler, kv.Key, need);
-                if (need > 0.001) PoolTake(fromHub, kv.Key, need);
+                need -= TakeFromVessel(hauler, kv.Key, need, false);
+                if (need > 0.001) PoolTake(fromHub, kv.Key, need, null, false);
             }
             return true;
         }
@@ -1228,7 +1281,6 @@ namespace KASA
                     if (v == null || !v.loaded) continue;   // on rails: burning nothing, so nothing is missed
 
                     SampleFuel(rec, v);
-                    TrackPeak(rec, v);
 
                     if (!rec.MidpointDone)
                     {
@@ -1279,6 +1331,17 @@ namespace KASA
 
 
     // ================================================================
+    // ================================================================
+    // CARGO TANK — marker on KASA holding tanks. Lets dual-use resources
+    // (LF/Ox) held as CARGO be told apart from the same resource burned as
+    // FUEL in a feed tank. MM-patched onto the holding tanks.
+    // ================================================================
+    public class KASACargoTank : PartModule
+    {
+        public override string GetInfo() { return "KASA cargo hold (routable storage)"; }
+    }
+
+
     // HUB — marker only, MM-patched onto command parts (see KASA_Logistics.cfg).
     // All hub controls live in the toolbar window (KASALogisticsUI).
     // ================================================================
@@ -1363,8 +1426,14 @@ namespace KASA
                 if (placed < taken - 0.001)                        // safety: return the overflow
                     KASALogisticsScenario.PoolAdd(hub, res, taken - placed, vessel);
 
-                if (placed > 0.01) { totalLoaded += placed; last = res; }
+                if (placed > 0.01)
+                {
+                    totalLoaded += placed; last = res;
+                    KASALogisticsScenario.Instance.RecordLoaded(vessel, res, placed);
+                }
             }
+
+            KASALogisticsScenario.Instance.ResetFuelSample(vessel);   // don't count the load as burn
 
             if (totalLoaded <= 0.01)
                 Msg("Nothing to load - no matching cargo in the pool, or tanks already full.");
@@ -1400,6 +1469,8 @@ namespace KASA
 
                 totalUnloaded += placed;
             }
+
+            KASALogisticsScenario.Instance.ResetFuelSample(vessel);   // don't count the unload as burn
 
             if (totalUnloaded <= 0.01)
                 Msg("Nothing to unload - hold empty, or the hub has no room.");
