@@ -4,9 +4,13 @@
 // Pairs with KASA_HideSpike.cfg. Answers the DESIGN-003 question:
 // can a part be truly hidden, then revealed at runtime?
 //
-// KEYBINDS (work in VAB/SPH and the R&D building):
-//   ALT + H   toggle the spike part hidden <-> visible
-//   ALT + J   log the part's current state to the KSP log
+// CONTROLS: a small window appears in the VAB/SPH and at the Space
+// Centre with two buttons:
+//   [Toggle hidden/visible]   flip the spike part
+//   [Log state]               dump its state to the KSP log
+//
+// (Buttons rather than keybinds so this needs no extra assembly
+//  references — UnityEngine.InputLegacyModule.dll is NOT required.)
 //
 // WHAT TO CHECK (this is the actual experiment):
 //   1. Fresh load, go to the VAB. The spike part must NOT appear in
@@ -15,20 +19,21 @@
 //      one — some "hidden" parts still surface via search. If it
 //      appears here, it is not truly hidden.
 //   3. Open R&D. It must not appear under the Start node.
-//   4. Press ALT+H in the VAB. Does it appear WITHOUT leaving the
+//   4. Click Toggle in the VAB. Does it appear WITHOUT leaving the
 //      scene? (If it only appears after a scene change, the reveal
 //      works but needs a refresh — note which.)
-//   5. Press ALT+H again. Does it disappear again?
-//   6. Place one, save the craft, ALT+H to hide, reload the craft.
+//   5. Click Toggle again. Does it disappear again?
+//   6. Place one, save the craft, Toggle to hide, reload the craft.
 //      Does the saved craft still load with the part? (This decides
 //      whether hiding is save-safe.)
 //
-// Report back: which of 1-6 behaved, and the log lines from ALT+J.
+// Report back: which of 1-6 behaved, and the [Log state] output.
 // ================================================================
 
 using System;
 using UnityEngine;
 using KSP.UI.Screens;
+using ClickThroughFix;   // already referenced by KASALogisticsUI
 
 namespace KASA
 {
@@ -40,13 +45,37 @@ namespace KASA
         // What the part should look like when visible.
         const PartCategories VISIBLE_CATEGORY = PartCategories.FuelTank;
 
-        void Update()
-        {
-            bool alt = Input.GetKey(KeyCode.LeftAlt) || Input.GetKey(KeyCode.RightAlt);
-            if (!alt) return;
+        Rect winRect = new Rect(60, 60, 260, 110);
+        readonly int winId = "KASAPartHideSpike".GetHashCode();
 
-            if (Input.GetKeyDown(KeyCode.H)) Toggle();
-            else if (Input.GetKeyDown(KeyCode.J)) LogState();
+        void OnGUI()
+        {
+            // Only where the test matters: the editor and the Space Centre (R&D).
+            if (!HighLogic.LoadedSceneIsEditor &&
+                HighLogic.LoadedScene != GameScenes.SPACECENTER) return;
+
+            GUI.skin = HighLogic.Skin;
+            winRect = ClickThruBlocker.GUILayoutWindow(winId, winRect, DrawWindow, "KASA hide spike");
+        }
+
+        void DrawWindow(int id)
+        {
+            AvailablePart ap = PartLoader.getPartInfoByName(SPIKE_PART);
+            GUILayout.BeginVertical();
+
+            if (ap == null)
+            {
+                GUILayout.Label("part not found — is KASA_HideSpike.cfg installed?");
+            }
+            else
+            {
+                GUILayout.Label(ap.TechHidden ? "currently HIDDEN" : "currently VISIBLE");
+                if (GUILayout.Button("Toggle hidden/visible")) Toggle();
+                if (GUILayout.Button("Log state")) LogState();
+            }
+
+            GUILayout.EndVertical();
+            GUI.DragWindow();
         }
 
         static AvailablePart Spike()
