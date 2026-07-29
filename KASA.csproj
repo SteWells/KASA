@@ -94,6 +94,7 @@
     <Compile Include="KASADiscovery.cs" />
     <Compile Include="KASALogistics.cs" />
     <Compile Include="KASALogisticsUI.cs" />
+    <Compile Include="KASAPartHideSpike.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>
@@ -116,6 +117,7 @@
     <None Include="KASA_Discovery.cfg" />
     <None Include="KASA_ELOverride.cfg" />
     <None Include="KASA_FuelTanks.cfg" />
+    <None Include="KASA_HideSpike.cfg" />
     <None Include="KASA_LaunchSites.cfg" />
     <None Include="KASA_Logistics.cfg" />
     <None Include="KASA_Parts.cfg" />
