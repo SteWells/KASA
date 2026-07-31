@@ -94,6 +94,7 @@
     <Compile Include="KASADiscovery.cs" />
     <Compile Include="KASALogistics.cs" />
     <Compile Include="KASALogisticsUI.cs" />
+    <Compile Include="KASAPartGate.cs" />
     <Compile Include="KASAPartHideSpike.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
@@ -112,11 +113,13 @@
     <None Include="Contracts\10b_TheMunMinmusAnomalies.cfg" />
     <None Include="Contracts\10c_TheConvergence.cfg" />
     <None Include="Contracts\90_TheTourismProgram.cfg" />
+    <None Include="DESIGN-003_DedicatedFuelParts.md" />
     <None Include="KASA.cfg" />
     <None Include="KASA_AetheriumEngines.cfg" />
     <None Include="KASA_Discovery.cfg" />
     <None Include="KASA_ELOverride.cfg" />
     <None Include="KASA_FuelTanks.cfg" />
+    <None Include="KASA_GatedParts.cfg" />
     <None Include="KASA_HideSpike.cfg" />
     <None Include="KASA_LaunchSites.cfg" />
     <None Include="KASA_Logistics.cfg" />

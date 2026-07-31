@@ -358,7 +358,7 @@ namespace KASA
         {
             "Regocite", "Glassmonite", "Ferrosite", "Kerium", "Evonite",
             "Moherium", "Laythite", "Elysium", "Consumables",
-            "PrismaticGel", "DenseOxidiser", "ThermicMix", "Aetherium", "Ore",
+            "PrismaticGel", "HeavyBlend", "ThermicMix", "Aetherium", "Ore",
             "LiquidFuel", "Oxidizer"
         };
 

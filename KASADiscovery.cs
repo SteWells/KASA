@@ -54,13 +54,21 @@ namespace KASA
         public static KASADiscoveryScenario Instance { get; private set; }
 
         // body.bodyName → has been discovered
-        // Discovery stages per body:
-        //   0 = hidden (None)
-        //   1 = SOI entered — blurred unknown object (Presence)
-        //   2 = orbital survey complete — name and orbit known (Appearance)
-        //   3 = surface scan complete — full detail (Owned)
+        // Discovery stages per body (authoritative mapping in GetTargetLevel):
+        //   0 = hidden — never seen                       (None)
+        //   1 = crew spotted in sky — unknown blob        (Presence)
+        //   2 = intermediate — unused                     (Presence)
+        //   3 = telescope detection — still unknown       (Presence)
+        //   4 = detailed observation — name revealed      (Appearance)
+        //   5 = altimetry scan — orbit details            (StateVectors)
+        //   6 = biome scan — full info                    (Owned)
         public Dictionary<string, int>  BodyDiscovered      = new Dictionary<string, int>();
     public Dictionary<string, bool> BodyResourceScanned = new Dictionary<string, bool>();
+        // DESIGN-003: fuels whose ENGINES + TANKS have been revealed. Set by the
+        // KASAFuelUnlocked behaviour on completion of the crewed sample-return
+        // contract for that fuel's source body. Separate from BodyResourceScanned:
+        // scanning a body unlocks its DRILL, returning a sample unlocks its FUEL.
+        public HashSet<string> UnlockedFuels = new HashSet<string>();
 
     // Sentinel survey system
     public bool   SentinelActive        = false;
@@ -179,6 +187,11 @@ namespace KASA
                 resNode.AddValue("name",    kvp.Key);
                 resNode.AddValue("scanned", kvp.Value.ToString());
             }
+            foreach (string fuel in UnlockedFuels)
+            {
+                ConfigNode fn = node.AddNode("FUEL_UNLOCK");
+                fn.AddValue("fuel", fuel);
+            }
             // Sentinel state
             node.AddValue("sentinelActive",       SentinelActive);
             node.AddValue("sentinelActivationTime", SentinelActivationTime);
@@ -219,6 +232,13 @@ namespace KASA
                 resNode.TryGetValue("scanned", ref scanned);
                 if (!string.IsNullOrEmpty(name))
                     BodyResourceScanned[name] = scanned;
+            }
+            UnlockedFuels.Clear();
+            foreach (ConfigNode fn in node.GetNodes("FUEL_UNLOCK"))
+            {
+                string fuel = "";
+                fn.TryGetValue("fuel", ref fuel);
+                if (!string.IsNullOrEmpty(fuel)) UnlockedFuels.Add(fuel);
             }
             // Sentinel state
             node.TryGetValue("sentinelActive", ref SentinelActive);
@@ -521,6 +541,26 @@ namespace KASA
             BodyResourceScanned[bodyName] = true;
             Debug.Log("[KASA] Resource scan complete for: " + bodyName);
             UnlockResourcesForBody(bodyName);
+        }
+
+        // ----------------------------------------------------------------
+        // DESIGN-003 — fuel part reveal
+        // ----------------------------------------------------------------
+
+        /// <summary>True once this fuel's engines and tanks have been revealed.</summary>
+        public bool IsFuelUnlocked(string fuel)
+        {
+            return !string.IsNullOrEmpty(fuel) && UnlockedFuels.Contains(fuel);
+        }
+
+        /// <summary>Reveal a fuel's parts. Idempotent — safe to call repeatedly
+        /// (contract completion can re-fire on load).</summary>
+        public void MarkFuelUnlocked(string fuel)
+        {
+            if (string.IsNullOrEmpty(fuel)) return;
+            if (!UnlockedFuels.Add(fuel)) return;          // already unlocked
+            Debug.Log("[KASA] Fuel unlocked: " + fuel + " — revealing its parts.");
+            KASAPartGate.Reveal(fuel);
         }
 
         // ----------------------------------------------------------------
