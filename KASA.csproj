@@ -114,6 +114,7 @@
     <None Include="Contracts\10c_TheConvergence.cfg" />
     <None Include="Contracts\90_TheTourismProgram.cfg" />
     <None Include="DESIGN-003_DedicatedFuelParts.md" />
+    <None Include="DESIGN-006_ReconSurveySplit.md" />
     <None Include="KASA.cfg" />
     <None Include="KASA_AetheriumEngines.cfg" />
     <None Include="KASA_Discovery.cfg" />
