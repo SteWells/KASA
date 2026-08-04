@@ -62,35 +62,35 @@ namespace KASA
         //   4 = detailed observation — name revealed      (Appearance)
         //   5 = altimetry scan — orbit details            (StateVectors)
         //   6 = biome scan — full info                    (Owned)
-        public Dictionary<string, int>  BodyDiscovered      = new Dictionary<string, int>();
-    public Dictionary<string, bool> BodyResourceScanned = new Dictionary<string, bool>();
+        public Dictionary<string, int> BodyDiscovered = new Dictionary<string, int>();
+        public Dictionary<string, bool> BodyResourceScanned = new Dictionary<string, bool>();
         // DESIGN-003: fuels whose ENGINES + TANKS have been revealed. Set by the
         // KASAFuelUnlocked behaviour on completion of the crewed sample-return
         // contract for that fuel's source body. Separate from BodyResourceScanned:
         // scanning a body unlocks its DRILL, returning a sample unlocks its FUEL.
         public HashSet<string> UnlockedFuels = new HashSet<string>();
 
-    // Sentinel survey system
-    public bool   SentinelActive        = false;
-    public double SentinelActivationTime = 0;
+        // Sentinel survey system
+        public bool SentinelActive = false;
+        public double SentinelActivationTime = 0;
 
-    // Outer survey system (Gazer relocated beyond Kerbin -> direct imaging).
-    // Reveals bodies EXTERIOR to Kerbin, which never transit and so are
-    // invisible to the Sentinel.
-    public bool   OuterSurveyActive         = false;
-    public double OuterSurveyActivationTime = 0;
+        // Outer survey system (Gazer relocated beyond Kerbin -> direct imaging).
+        // Reveals bodies EXTERIOR to Kerbin, which never transit and so are
+        // invisible to the Sentinel.
+        public bool OuterSurveyActive = false;
+        public double OuterSurveyActivationTime = 0;
 
-    // Scheduled planet detection times (bodyName -> UT when it will be revealed at level 1)
-    public Dictionary<string, double> PlanetDetectionTimers = new Dictionary<string, double>();
+        // Scheduled planet detection times (bodyName -> UT when it will be revealed at level 1)
+        public Dictionary<string, double> PlanetDetectionTimers = new Dictionary<string, double>();
 
-    // Scheduled moon discovery times (moonName -> UT when it reveals)
-    public Dictionary<string, double> MoonDiscoveryTimers = new Dictionary<string, double>();
+        // Scheduled moon discovery times (moonName -> UT when it reveals)
+        public Dictionary<string, double> MoonDiscoveryTimers = new Dictionary<string, double>();
 
-    // Moon -> parent planet mapping (populated from KASA_Discovery.cfg)
-    public static Dictionary<string, string> MoonParents = new Dictionary<string, string>();
+        // Moon -> parent planet mapping (populated from KASA_Discovery.cfg)
+        public static Dictionary<string, string> MoonParents = new Dictionary<string, string>();
 
-    // Planet orbital radii for weighting (SMA in metres, populated from config)
-    public static Dictionary<string, double> PlanetSMA = new Dictionary<string, double>();
+        // Planet orbital radii for weighting (SMA in metres, populated from config)
+        public static Dictionary<string, double> PlanetSMA = new Dictionary<string, double>();
 
         // ----------------------------------------------------------------
         // Lifecycle
@@ -129,7 +129,7 @@ namespace KASA
         // KSP resets DiscoveryInfo on scene transitions — we must override.
         private void OnSceneLoaded(GameScenes scene)
         {
-            if (scene == GameScenes.SPACECENTER  ||
+            if (scene == GameScenes.SPACECENTER ||
                 scene == GameScenes.TRACKSTATION ||
                 scene == GameScenes.FLIGHT)
             {
@@ -184,7 +184,7 @@ namespace KASA
             foreach (var kvp in BodyResourceScanned)
             {
                 ConfigNode resNode = node.AddNode("BODY_RESOURCE");
-                resNode.AddValue("name",    kvp.Key);
+                resNode.AddValue("name", kvp.Key);
                 resNode.AddValue("scanned", kvp.Value.ToString());
             }
             foreach (string fuel in UnlockedFuels)
@@ -193,9 +193,9 @@ namespace KASA
                 fn.AddValue("fuel", fuel);
             }
             // Sentinel state
-            node.AddValue("sentinelActive",       SentinelActive);
+            node.AddValue("sentinelActive", SentinelActive);
             node.AddValue("sentinelActivationTime", SentinelActivationTime);
-            node.AddValue("outerSurveyActive",        OuterSurveyActive);
+            node.AddValue("outerSurveyActive", OuterSurveyActive);
             node.AddValue("outerSurveyActivationTime", OuterSurveyActivationTime);
             foreach (var kvp in PlanetDetectionTimers)
             {
@@ -226,8 +226,8 @@ namespace KASA
             }
             foreach (ConfigNode resNode in node.GetNodes("BODY_RESOURCE"))
             {
-                string name    = "";
-                bool   scanned = false;
+                string name = "";
+                bool scanned = false;
                 resNode.TryGetValue("name", ref name);
                 resNode.TryGetValue("scanned", ref scanned);
                 if (!string.IsNullOrEmpty(name))
@@ -604,7 +604,7 @@ namespace KASA
                 double t = System.Math.Log(sma / minSMA) / System.Math.Log(maxSMA / minSMA);
                 t = System.Math.Max(0, System.Math.Min(1, t));
 
-                double minDays = 5  + t * 85;   // 5 days at Moho, 90 days at Eeloo
+                double minDays = 5 + t * 85;   // 5 days at Moho, 90 days at Eeloo
                 double maxDays = 15 + t * 165;   // 15 days at Moho, 180 days at Eeloo
 
                 double days = minDays + rng.NextDouble() * (maxDays - minDays);
@@ -707,14 +707,14 @@ namespace KASA
         // ProgressiveCBMaps integration
         // ----------------------------------------------------------------
         private bool _pcbmInitialised = false;
-        private bool _pcbmAvailable   = false;
+        private bool _pcbmAvailable = false;
         // Cache last applied visual level per body — avoids calling setVisualLevel
         // every frame when nothing has changed (reduces EVE NullRef spam from PCBM)
         private Dictionary<string, int> _lastAppliedLevel = new Dictionary<string, int>();
         // Cached reflection references
-        private System.Type       _pcbmVisualMapsType;
-        private object            _pcbmInstance;
-        private System.Type       _pcbmCBInfoType;
+        private System.Type _pcbmVisualMapsType;
+        private object _pcbmInstance;
+        private System.Type _pcbmCBInfoType;
         private System.Reflection.MethodInfo _pcbmGetInfoDict;
         private System.Reflection.MethodInfo _pcbmSetLevel;
 
@@ -773,6 +773,43 @@ namespace KASA
         /// Sets the visual detail level for a body via ProgressiveCBMaps.
         /// Falls back to SetActive(false) for level 0 if PCBM is not available.
         /// </summary>
+        /// <summary>Forget which levels were last applied, so the next ApplyDiscoveryLevels()
+        /// re-applies every body from scratch. Safety net: called on scene load so a body
+        /// whose texture was disposed can never stay broken beyond the current scene, even
+        /// if the per-body detection above misses the case.</summary>
+        public void InvalidateVisualLevelCache()
+        {
+            _lastAppliedLevel.Clear();
+        }
+
+        /// <summary>True if the body's scaled-space material has lost its main texture.
+        /// This is the SCANsat-disposal case: the material survives but _MainTex is null
+        /// (or a destroyed Unity object, which compares equal to null), so the body renders
+        /// black. Returns false on anything unexpected — a false negative just means we skip
+        /// a repair, whereas a false positive would re-apply PCBM every single frame.</summary>
+        private bool ScaledTextureMissing(CelestialBody body)
+        {
+            try
+            {
+                if (body == null || body.scaledBody == null) return false;
+
+                var mr = body.scaledBody.GetComponent<MeshRenderer>();
+                if (mr == null || mr.sharedMaterial == null) return false;
+
+                Material mat = mr.sharedMaterial;
+                if (!mat.HasProperty("_MainTex")) return false;
+
+                // Unity overloads == so a destroyed texture compares equal to null here.
+                return mat.GetTexture("_MainTex") == null;
+            }
+            catch (System.Exception ex)
+            {
+                Debug.LogWarning("[KASA] ScaledTextureMissing check failed for " +
+                                 (body != null ? body.bodyName : "null") + ": " + ex.Message);
+                return false;
+            }
+        }
+
         public void SetBodyVisualLevel(CelestialBody body, int level)
         {
             if (body == null) return;
@@ -780,12 +817,22 @@ namespace KASA
             // The Sun has no scaledBody textures in PCBM — skip it entirely.
             if (body == Planetarium.fetch.Sun || body.bodyName == "Sun") return;
 
-            // Skip PCBM call if level hasn't changed — avoids hammering it.
-            // Parallax suppression is now handled by Parallax itself querying
-            // KASA via GetVisualLevelForBody on each scene's ScaledManager.Start().
+            // Skip the PCBM call if the level hasn't changed — avoids hammering it.
+            // Parallax suppression is handled by Parallax itself querying KASA via
+            // GetVisualLevelForBody on each scene's ScaledManager.Start().
+            //
+            // BUT: the cache must not block a REPAIR. SCANsat disposes of a body's
+            // scaled-space texture when you close/switch its map (it runs its unload
+            // path even with Kopernicus on-demand loading disabled). For a body PCBM
+            // has given a generated texture — i.e. any partially-revealed body — nothing
+            // regenerates it, so the material is left with a dead _MainTex and the body
+            // renders as a plain black circle. Without the check below the cache would
+            // then refuse to re-apply (level unchanged), so the black state survived
+            // scene changes indefinitely. If the texture has gone, re-apply regardless.
             int lastLevel;
-            if (_lastAppliedLevel.TryGetValue(body.bodyName, out lastLevel) && lastLevel == level)
-                return;
+            bool sameLevel = _lastAppliedLevel.TryGetValue(body.bodyName, out lastLevel) && lastLevel == level;
+            bool repairing = sameLevel && ScaledTextureMissing(body);
+            if (sameLevel && !repairing) return;
             _lastAppliedLevel[body.bodyName] = level;
 
             if (!InitPCBM())
@@ -798,6 +845,11 @@ namespace KASA
                     body.MapObject.gameObject.SetActive(visible);
                 return;
             }
+
+            if (repairing)
+                Debug.Log("[KASA] Scaled-space texture for " + body.bodyName +
+                          " had been disposed (likely by a SCANsat map close/switch) — " +
+                          "re-applying visual level " + level + " to restore it.");
 
             try
             {
@@ -1037,6 +1089,11 @@ namespace KASA
             Debug.Log("[KASA] OnSceneLoaded: " + scene);
             if (KASADiscoveryScenario.Instance != null)
             {
+                // Safety net for the SCANsat texture-disposal bug: drop the
+                // last-applied cache so this scene re-applies every body's visual
+                // level from scratch, restoring any texture disposed in the last scene.
+                KASADiscoveryScenario.Instance.InvalidateVisualLevelCache();
+
                 var go = KASADiscoveryScenario.Instance.gameObject;
 
                 if (scene == GameScenes.FLIGHT)
@@ -1166,7 +1223,7 @@ namespace KASA
             // Moon parent relationships
             foreach (ConfigNode mn in cfg.GetNodes("MOON_DATA"))
             {
-                string moon   = mn.GetValue("moon")   ?? "";
+                string moon = mn.GetValue("moon") ?? "";
                 string parent = mn.GetValue("parent") ?? "";
                 if (!string.IsNullOrEmpty(moon) && !string.IsNullOrEmpty(parent))
                     KASADiscoveryScenario.MoonParents[moon] = parent;
@@ -1335,7 +1392,7 @@ namespace KASA
         {
             bool valid = base.Load(configNode);
             valid &= ConfigNodeUtil.ParseValue<string>(
-                configNode, "body",      x => targetBodyName   = x, this);
+                configNode, "body", x => targetBodyName = x, this);
             // parameter is optional — if omitted, behaviour fires on contract completion
             ConfigNodeUtil.ParseValue<string>(
                 configNode, "parameter", x => triggerParameter = x, this, "");
@@ -1361,9 +1418,9 @@ namespace KASA
 
         public KASAAdvanceDiscoveryBehaviour(string body, string parameter, string stage)
         {
-            this.targetBodyName   = body;
+            this.targetBodyName = body;
             this.triggerParameter = parameter;
-            this.stage            = stage;
+            this.stage = stage;
         }
 
         protected override void OnParameterStateChange(ContractParameter param)
@@ -1400,13 +1457,13 @@ namespace KASA
             int targetStage = -1;
             switch (stage)
             {
-                case "presence":    targetStage = 1; break;
-                case "telescope":   targetStage = 3; break;
+                case "presence": targetStage = 1; break;
+                case "telescope": targetStage = 3; break;
                 case "observation": targetStage = 4; break;
-                case "altimetry":   targetStage = 5; break;
-                case "biome":       targetStage = 6; break;
-                case "orbital":     targetStage = 3; break;
-                case "surface":     targetStage = 6; break;
+                case "altimetry": targetStage = 5; break;
+                case "biome": targetStage = 6; break;
+                case "orbital": targetStage = 3; break;
+                case "surface": targetStage = 6; break;
                 default:
                     // Try parsing as number for direct stage specification
                     int.TryParse(stage, out targetStage);
@@ -1427,16 +1484,16 @@ namespace KASA
 
         protected override void OnLoad(ConfigNode node)
         {
-            targetBodyName   = node.GetValue("body")      ?? "";
+            targetBodyName = node.GetValue("body") ?? "";
             triggerParameter = node.GetValue("parameter") ?? "";
-            stage            = node.GetValue("stage")     ?? "orbital";
+            stage = node.GetValue("stage") ?? "orbital";
         }
 
         protected override void OnSave(ConfigNode node)
         {
-            node.AddValue("body",      targetBodyName);
+            node.AddValue("body", targetBodyName);
             node.AddValue("parameter", triggerParameter);
-            node.AddValue("stage",     stage);
+            node.AddValue("stage", stage);
         }
     }
 
@@ -1459,7 +1516,7 @@ namespace KASA
     public class KASABodyDiscoveryStageRequirement : ContractRequirement
     {
         protected string targetBodyName { get; set; }
-        protected int    minStage       { get; set; }
+        protected int minStage { get; set; }
 
         public override bool LoadFromConfig(ConfigNode configNode)
         {
@@ -1482,7 +1539,7 @@ namespace KASA
 
         public override void OnSave(ConfigNode configNode)
         {
-            configNode.AddValue("body",     targetBodyName);
+            configNode.AddValue("body", targetBodyName);
             configNode.AddValue("minStage", minStage);
         }
 
@@ -1526,7 +1583,7 @@ namespace KASA
         {
             bool valid = base.Load(configNode);
             valid &= ConfigNodeUtil.ParseValue<string>(
-                configNode, "body",      x => targetBodyName   = x, this);
+                configNode, "body", x => targetBodyName = x, this);
             valid &= ConfigNodeUtil.ParseValue<string>(
                 configNode, "parameter", x => triggerParameter = x, this);
             return valid;
@@ -1547,7 +1604,7 @@ namespace KASA
 
         public KASAResourceScannedBehaviour(string body, string parameter)
         {
-            this.targetBodyName   = body;
+            this.targetBodyName = body;
             this.triggerParameter = parameter;
         }
 
@@ -1565,13 +1622,13 @@ namespace KASA
 
         protected override void OnLoad(ConfigNode node)
         {
-            targetBodyName   = node.GetValue("body")      ?? "";
+            targetBodyName = node.GetValue("body") ?? "";
             triggerParameter = node.GetValue("parameter") ?? "";
         }
 
         protected override void OnSave(ConfigNode node)
         {
-            node.AddValue("body",      targetBodyName);
+            node.AddValue("body", targetBodyName);
             node.AddValue("parameter", triggerParameter);
         }
     }
@@ -1604,44 +1661,44 @@ namespace KASA
     public class KASACoordinateCoveredRequirement : ContractRequirement
     {
         protected string targetBodyName { get; set; }
-        protected double latitude       { get; set; }
-        protected double longitude      { get; set; }
-        protected string scanType       { get; set; }
+        protected double latitude { get; set; }
+        protected double longitude { get; set; }
+        protected string scanType { get; set; }
 
         // Cached SCANsat reflection references — resolved once on first use.
         private static System.Reflection.MethodInfo _isCoveredMethod;
-        private static System.Type                  _scanTypeEnum;
-        private static bool                         _scanSatResolved;
+        private static System.Type _scanTypeEnum;
+        private static bool _scanSatResolved;
 
         public override bool LoadFromConfig(ConfigNode configNode)
         {
             bool valid = base.LoadFromConfig(configNode);
             valid &= ConfigNodeUtil.ParseValue<string>(
-                configNode, "body",      x => targetBodyName = x, this);
+                configNode, "body", x => targetBodyName = x, this);
             valid &= ConfigNodeUtil.ParseValue<double>(
-                configNode, "latitude",  x => latitude       = x, this);
+                configNode, "latitude", x => latitude = x, this);
             valid &= ConfigNodeUtil.ParseValue<double>(
-                configNode, "longitude", x => longitude      = x, this);
+                configNode, "longitude", x => longitude = x, this);
             valid &= ConfigNodeUtil.ParseValue<string>(
-                configNode, "scanType",  x => scanType       = x, this, "Altimetry");
+                configNode, "scanType", x => scanType = x, this, "Altimetry");
             checkOnActiveContract = true;
             return valid;
         }
 
         public override void OnLoad(ConfigNode configNode)
         {
-            targetBodyName = configNode.GetValue("body")      ?? "";
-            scanType       = configNode.GetValue("scanType")  ?? "Altimetry";
-            double.TryParse(configNode.GetValue("latitude")  ?? "0", out double lat); latitude  = lat;
+            targetBodyName = configNode.GetValue("body") ?? "";
+            scanType = configNode.GetValue("scanType") ?? "Altimetry";
+            double.TryParse(configNode.GetValue("latitude") ?? "0", out double lat); latitude = lat;
             double.TryParse(configNode.GetValue("longitude") ?? "0", out double lon); longitude = lon;
         }
 
         public override void OnSave(ConfigNode configNode)
         {
-            configNode.AddValue("body",      targetBodyName);
-            configNode.AddValue("latitude",  latitude);
+            configNode.AddValue("body", targetBodyName);
+            configNode.AddValue("latitude", latitude);
             configNode.AddValue("longitude", longitude);
-            configNode.AddValue("scanType",  scanType);
+            configNode.AddValue("scanType", scanType);
         }
 
         protected override string RequirementText()
