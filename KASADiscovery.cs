@@ -773,6 +773,49 @@ namespace KASA
         /// Sets the visual detail level for a body via ProgressiveCBMaps.
         /// Falls back to SetActive(false) for level 0 if PCBM is not available.
         /// </summary>
+        private bool _pcbmDumped = false;
+
+        /// <summary>One-time reflection dump of what ProgressiveCBMaps actually exposes.
+        /// Only fires if a repair fails, to tell us which other method could force a
+        /// texture regenerate (KASA currently binds only setVisualLevel).</summary>
+        private void DumpPCBMMembersOnce()
+        {
+            if (_pcbmDumped) return;
+            _pcbmDumped = true;
+            try
+            {
+                if (_pcbmCBInfoType != null)
+                {
+                    var sb = new System.Text.StringBuilder("[KASA] PCBM CelestialBodyInfo members:");
+                    foreach (var mi in _pcbmCBInfoType.GetMethods(
+                                 System.Reflection.BindingFlags.Public |
+                                 System.Reflection.BindingFlags.NonPublic |
+                                 System.Reflection.BindingFlags.Instance))
+                        sb.Append("\n    m: ").Append(mi.Name);
+                    foreach (var fi in _pcbmCBInfoType.GetFields(
+                                 System.Reflection.BindingFlags.Public |
+                                 System.Reflection.BindingFlags.NonPublic |
+                                 System.Reflection.BindingFlags.Instance))
+                        sb.Append("\n    f: ").Append(fi.Name).Append(" : ").Append(fi.FieldType.Name);
+                    Debug.Log(sb.ToString());
+                }
+                if (_pcbmVisualMapsType != null)
+                {
+                    var sb = new System.Text.StringBuilder("[KASA] PCBM VisualMaps members:");
+                    foreach (var mi in _pcbmVisualMapsType.GetMethods(
+                                 System.Reflection.BindingFlags.Public |
+                                 System.Reflection.BindingFlags.NonPublic |
+                                 System.Reflection.BindingFlags.Instance))
+                        sb.Append("\n    m: ").Append(mi.Name);
+                    Debug.Log(sb.ToString());
+                }
+            }
+            catch (System.Exception ex)
+            {
+                Debug.LogWarning("[KASA] PCBM member dump failed: " + ex.Message);
+            }
+        }
+
         /// <summary>Forget which levels were last applied, so the next ApplyDiscoveryLevels()
         /// re-applies every body from scratch. Safety net: called on scene load so a body
         /// whose texture was disposed can never stay broken beyond the current scene, even
@@ -859,11 +902,53 @@ namespace KASA
 
                 if (!dict.Contains(body)) return;
                 var cbInfo = dict[body];
+
+                if (repairing)
+                {
+                    // PCBM's setVisualLevel ignores a call that sets the level it is
+                    // already on, so simply re-asking for the same level does nothing —
+                    // which is why the first version of this repair detected the problem
+                    // but never fixed it. Bounce through a DIFFERENT level to force a
+                    // regenerate. Bounce DOWNWARD (to 0 = hidden) wherever possible:
+                    // a momentary under-reveal is invisible, whereas bouncing upward
+                    // could flash real surface detail the player has not earned.
+                    // Bounce only ONE level down where possible rather than all the way
+                    // to 0: asking PCBM to fully hide a body mid-scene made it throw a
+                    // TargetInvocationException on roughly a third of repairs. A smaller
+                    // step still differs from the current level (which is all PCBM needs
+                    // to regenerate) and is far less disruptive. Still downward, so no
+                    // risk of flashing detail the player has not earned.
+                    int bounce = (level > 1) ? level - 1 : 0;
+                    _pcbmSetLevel.Invoke(cbInfo, new object[] { bounce });
+                }
+
                 _pcbmSetLevel.Invoke(cbInfo, new object[] { level });
+
+                if (repairing)
+                {
+                    // Confirm the bounce actually restored a texture. If this still
+                    // reports missing, PCBM is not regenerating on setVisualLevel and we
+                    // need a different entry point — see the method dump below.
+                    if (ScaledTextureMissing(body))
+                    {
+                        Debug.LogWarning("[KASA] Repair of " + body.bodyName +
+                                         " FAILED — texture still missing after level bounce.");
+                        DumpPCBMMembersOnce();
+                    }
+                    else
+                    {
+                        Debug.Log("[KASA] Repair of " + body.bodyName + " succeeded.");
+                    }
+                }
             }
             catch (System.Exception ex)
             {
-                Debug.LogWarning("[KASA] SetBodyVisualLevel error for " + body.bodyName + ": " + ex.Message);
+                // Reflection wraps whatever PCBM threw, so ex.Message alone is useless
+                // ("Exception has been thrown by the target of an invocation"). Unwrap it.
+                System.Exception real = ex.InnerException ?? ex;
+                Debug.LogWarning("[KASA] SetBodyVisualLevel error for " + body.bodyName +
+                                 ": " + real.GetType().Name + ": " + real.Message +
+                                 (repairing ? "  (during a texture repair — next watchdog tick will retry)" : ""));
             }
         }
 
@@ -910,7 +995,7 @@ namespace KASA
             return DiscoveryStageToVisualLevel(stage);
         }
 
-        /// <summary>Returns the current discovery stage (0-3) for a body.</summary>
+        /// <summary>Returns the current discovery stage (0-6) for a body.</summary>
         public int GetDiscoveryStage(string bodyName)
         {
             int stage;
@@ -1877,6 +1962,65 @@ namespace KASA
     // Hides KASA drill harvesters for resources whose home body hasn't been
     // resource-scanned. It ONLY hides — it never force-shows fields, which is
     // what corrupted the part-action window before.
+    // ================================================================
+    // SCALED-SPACE TEXTURE WATCHDOG
+    // ----------------------------------------------------------------
+    // SCANsat disposes of a body's scaled-space texture when its map is
+    // closed or switched to another body. For a body PCBM has given a
+    // GENERATED texture — any partially-revealed body — nothing puts it
+    // back, so the body renders as a plain black circle.
+    //
+    // SetBodyVisualLevel can repair this (see the `repairing` path there),
+    // but it is only called on scene load / map entry, so the black state
+    // persisted for as long as the player stayed in the scene where the
+    // damage happened. This watchdog spots it in place.
+    //
+    // Deliberately cheap: a throttled check, only in scenes with a map,
+    // and only for bodies PCBM actually manages (level 1-5). Level 0 is
+    // hidden anyway and level 6 keeps its stock texture, which KSP can
+    // restore on its own.
+    // ================================================================
+    [KSPAddon(KSPAddon.Startup.EveryScene, false)]
+    public class KASAScaledTextureWatchdog : MonoBehaviour
+    {
+        // 1s: short enough that the black flash is barely noticeable, long enough
+        // that the per-body check costs nothing. Raise it if it ever shows on a profile.
+        private const float CHECK_INTERVAL = 1.0f;
+        private float nextCheck = 0f;
+
+        private void Update()
+        {
+            if (HighLogic.LoadedScene != GameScenes.TRACKSTATION &&
+                HighLogic.LoadedScene != GameScenes.FLIGHT) return;
+
+            // In flight only bother while the map/tracking view is actually up.
+            if (HighLogic.LoadedScene == GameScenes.FLIGHT && !MapView.MapIsEnabled) return;
+
+            if (Time.realtimeSinceStartup < nextCheck) return;
+            nextCheck = Time.realtimeSinceStartup + CHECK_INTERVAL;
+
+            KASADiscoveryScenario scen = KASADiscoveryScenario.Instance;
+            if (scen == null || FlightGlobals.Bodies == null) return;
+
+            foreach (CelestialBody body in FlightGlobals.Bodies)
+            {
+                if (body == null) continue;
+                if (body == Planetarium.fetch.Sun || body.bodyName == "Sun") continue;
+
+                int stage = scen.GetDiscoveryStage(body.bodyName);
+                int level = KASADiscoveryScenario.DiscoveryStageToVisualLevel(stage);
+
+                // Only PCBM-generated levels can be lost irrecoverably.
+                if (level <= 0 || level >= 6) continue;
+
+                // SetBodyVisualLevel does the detection and the repair itself;
+                // if the texture is intact this returns immediately on the cache.
+                scen.SetBodyVisualLevel(body, level);
+            }
+        }
+    }
+
+
     [KSPAddon(KSPAddon.Startup.EveryScene, false)]
     public class KASAResourceGate : MonoBehaviour
     {
